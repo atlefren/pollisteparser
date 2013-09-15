@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block container %}
+<form role="form" method="post" enctype="multipart/form-data">
+    <div class="form-group">
+        <label for="file_name">Fil</label>
+        <input type="file" id="file_name" name="file">
+        <p class="help-block">Last opp en vareliste fra Vinmonopolet (pdf)</p>
+    </div>
+    <button type="submit" class="btn btn-default">Vis liste</button>
+</form>
+
+
+{% endblock %}

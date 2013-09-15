@@ -1,0 +1,446 @@
+{% extends "base.html" %}
+
+{% block js %}
+
+<script src="//code.jquery.com/jquery-1.10.1.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.5.1/underscore-min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/backbone.js/1.0.0/backbone-min.js"></script>
+
+<script type="text/template" id="btn_sort_template">
+    <%= name %>
+    <button type="button" class="btn btn-default btn-xs <% if (active) { %>btn-primary <% }%>">
+        <span class="glyphicon glyphicon-arrow-down"></span>
+    </button>
+</script>
+
+<script type="text/template" id="errors_form_template">
+    <form class="inline-form" role="form">
+        <fieldset>
+            <legend>Feil</legend>
+            <div class="form-group">
+                <label for="errors" class="sr-only">Errors</label>
+                <textarea class="form-control" rows="7" id="errors">
+<% lines.each(function(error_line) { %><%= error_line.get("text") %>
+<% }) %>
+                </textarea>
+                <p class="help-block">Prøv å fikse disse ved å sette inn ; der det skal være skille.</p>
+            </div>
+            <div class="form-group">
+                <button type="button" class="btn btn-default" id="fix_errors">Fix</button>
+            </div>
+        </fieldset>
+    </form>
+
+</script>
+
+<script type="text/template" id="utils_template">
+    <div class="row">
+        <div class="col-md-4">
+            <form class="inline-form" role="form">
+                <fieldset>
+                    <legend>Søk</legend>
+                    <div class="form-group">
+                        <label for="search" class="sr-only">Søk</label>
+                        <input type="text" class="form-control" id="search" placeholder="">
+                    </div>
+                </fieldset>
+            </form>
+        </div>
+        <div class="col-md-4">
+            <form class="inline-form" role="form" id="filter_form">
+                <fieldset>
+                    <legend>Filter</legend>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="filter_by" class="sr-only">Filter</label>
+                                <select id="filter_by" class="form-control"></select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="filter_values" class="sr-only">Verdi</label>
+                                <select id="filter_values" class="form-control" multiple></select>
+                            </div>
+                        </div>
+                    </div>
+                </fieldset>
+            </form>
+        </div>
+    </div>
+</script>
+
+<script type="text/javascript">
+
+    var Ol = {};
+    (function (ns) {
+
+        var Product = Backbone.Model.extend({
+
+            "defaults": {
+                "display": true
+            }
+
+        });
+
+        var ProductList = Backbone.Collection.extend({
+
+            model: Product,
+
+            comparator: function (product) {
+                if (this.sort_field) {
+                    return product.get(this.sort_field);
+                }
+                return 0;
+            }
+        });
+
+        var HeaderField = Backbone.Model.extend({
+
+            getDisplayName: function () {
+                var name = this.get("name").toLowerCase();
+                return name.charAt(0).toUpperCase() + name.slice(1);
+            }
+        });
+        var HeaderList = Backbone.Collection.extend({
+            model: HeaderField
+        });
+
+
+        var HeaderElement = Backbone.View.extend({
+
+            tagName: "th",
+
+            template: $("#btn_sort_template").html(),
+
+            events: {
+                "click button": "sort"
+            },
+
+            initialize: function () {
+                _.bindAll(this, "sort");
+                this.model.on("change:sort_by", this.render, this);
+            },
+
+            render: function () {
+                this.$el.html(_.template(this.template, {"name": this.model.getDisplayName(), "active": this.model.get("sort_by")}));
+                return this;
+            },
+
+            sort: function () {
+                this.model.collection.each(function (header) {
+                    header.set("sort_by", (header === this.model));
+                }, this);
+                this.model.collection.trigger("sort");
+            }
+
+        });
+
+        var ProductTableHeader = Backbone.View.extend({
+
+            tagName: "thead",
+
+            render: function () {
+                var els = this.collection.map(function (header) {
+                    return new HeaderElement({"model": header}).render().$el;
+                });
+                var tr = $("<tr></tr>");
+                tr.append(els);
+                this.$el.append(tr);
+                return this;
+            }
+        });
+
+        var ProductTableRow = Backbone.View.extend({
+
+            tagName: "tr",
+
+            initialize: function () {
+                this.model.on("change:display", this.toggle, this);
+            },
+
+            render: function () {
+                var els = this.options.fields.map(function(field) {
+                    return $("<td>" + this.model.get(field.get("name")) + "</td>");
+                }, this);
+                this.$el.html(els);
+                this.toggle();
+                return this;
+            },
+
+            toggle: function () {
+                if (!this.model.get("display")) {
+                    this.$el.hide();
+                } else {
+                    this.$el.show();
+                }
+            }
+
+        });
+
+        var ProductTableBody = Backbone.View.extend({
+
+            tagName: "tbody",
+
+            initialize: function () {
+                this.collection.on("sort", this.render, this);
+            },
+
+            render: function () {
+                this.$el.html("");
+                this.collection.each(this.renderRow, this);
+
+                return this;
+            },
+
+            renderRow: function (row) {
+                this.$el.append(new ProductTableRow({
+                    "model": row,
+                    "fields": this.options.header
+                }).render().$el);
+            }
+        });
+
+        var ProductTable = Backbone.View.extend({
+
+            tagName: "table table-striped",
+
+            className: "table table-bordered",
+
+            initialize: function () {
+                this.header = new ProductTableHeader({
+                    "collection": this.options.header
+                });
+                this.body = new ProductTableBody({
+                    "header": this.options.header,
+                    "collection": this.collection
+                });
+
+                this.options.header.on("sort", this.sort, this);
+            },
+
+            sort: function () {
+                var sort_by = this.options.header.findWhere({"sort_by": true});
+                this.collection.sort_field = sort_by.get("name");
+                this.collection.sort();
+            },
+
+            render: function () {
+                this.$el.html("");
+                this.$el.append(this.header.render().$el);
+                this.$el.append(this.body.render().$el);
+                return this;
+            }
+        });
+
+        var FilterView = Backbone.View.extend({
+
+            events: {
+                "change #filter_by": "filterBy",
+                "change #filter_values": "filterByValue"
+            },
+
+            initialize: function () {
+                _.bindAll(this, "filterBy", "filterByValue");
+            },
+
+            render: function () {
+                var opts = this.collection.map(function (field) {
+                    return $("<option value='" + field.get("name") + "'>" + field.getDisplayName() + "</option>");
+                });
+                opts.unshift($("<option>--</option>"));
+                this.$("#filter_by").html(opts);
+                return this;
+            },
+
+            reset: function () {
+                this.$("#filter_by").val("--");
+                this.$("#filter_values").html("");
+            },
+
+            filterBy: function () {
+                var val = this.$("#filter_by").val();
+                var values = [];
+                if (val !== "--") {
+                    var data = _.uniq(this.options.values.pluck(val));
+                    values = _.map(data, function (value) {
+                        return $("<option value='" + value + "'>" + value + "</option>");
+                    });
+                } else {
+                    this.trigger("filter");
+                }
+                this.$("#filter_values").html(values);
+            },
+
+            filterByValue: function () {
+                var key = this.$("#filter_by").val();
+                var values = this.$("#filter_values").val() || [];
+                this.trigger("filter", key, values);
+            }
+
+        });
+
+        var ErrorsView = Backbone.View.extend({
+
+            events: {
+                "click #fix_errors": "fixErrors"
+            },
+
+            initialize: function () {
+                _.bindAll(this, "fixErrors");
+            },
+
+            render: function () {
+                this.$el.append(_.template($('#errors_form_template').html(), {"lines": this.options.errors}));
+                return this;
+            },
+
+            fixErrors: function () {
+
+                var value = this.$("#errors").val();
+                var res = _.reduce(value.split("\n"), function(res, line) {
+                    line = $.trim(line);
+                    if (line && line !== ""){
+                        var split = line.split(";");
+                        if (split.length === this.options.header.length) {
+                            res.fixed.push(split);
+                        } else {
+                            res.errors.push(line);
+                        }
+                    }
+                    return res;
+                }, {"fixed": [], "errors": []}, this);
+
+                this.options.errors.reset(_.map(res.errors, function(line){
+                    return {"text": line};
+                }));
+
+                this.$("#errors").val(this.options.errors.pluck("text").join("\n"));
+                this.collection.add(_.map(res.fixed, function(line){
+                    return _.reduce(line, function(res, value, i){
+                        res[this.options.header[i]] = value;
+                        return res;
+                    }, {}, this);
+                }, this));
+                this.trigger("fixed");
+                if (this.options.errors.length === 0){
+                    this.$el.remove();
+                }
+            }
+        });
+
+        ns.ProductPage = Backbone.View.extend({
+
+            events: {
+                "keyup #search":  "search"
+            },
+
+            initialize: function () {
+                _.bindAll(this, "search");
+                this.collection = new ProductList(this.options.products);
+
+                this.header = new HeaderList(_.map(this.options.header, function (field){
+                    return {"name": field};
+                }));
+
+                this.productTable = new ProductTable({
+                    "collection": this.collection,
+                    "header": this.header
+                });
+
+                this.not_parseable = new Backbone.Collection(_.map(this.options.not_parseable, function (line){
+                    return {"text": line};
+                }));
+
+                this.filterView = new FilterView({"collection": this.header, "values": this.collection});
+                this.filterView.on("filter", this.filter, this);
+                this.errorsView = new ErrorsView({
+                    "collection": this.collection,
+                    "errors": this.not_parseable,
+                    "header": this.options.header
+                });
+
+                this.errorsView.on("fixed", this.updateStatus, this);
+            },
+
+            render: function () {
+                this.$el.append($('<p id="status"></p>'));
+                this.updateStatus();
+                this.$el.append($("#utils_template").html());
+                this.$el.append(this.productTable.render().$el);
+                this.$el.append(this.errorsView.render().$el);
+
+                this.filterView.setElement(this.$("#filter_form"));
+                this.filterView.render();
+                return this;
+            },
+
+            updateStatus: function () {
+                var text = "Totalt " + this.collection.length + " elementer";
+                if (this.not_parseable.length > 0) {
+                    text +=" (" + this.not_parseable.length + " linjer kunne ikke leses)";
+                }
+                text +=".";
+                this.$("#status").html(text);
+            },
+
+            showAll: function () {
+                this.collection.each(function (product) {
+                    product.set({"display": true});
+                });
+            },
+
+            search: function () {
+                this.filterView.reset();
+                var search = this.$("#search").val().toLowerCase();
+                if (search === "") {
+                    this.showAll();
+                } else {
+                    this.collection.each(function (product) {
+                        var res = this.header.map(function (field) {
+                            var data = product.get(field.get("name"));
+                            if (!isNaN(data)) {
+                              data = data.toString();
+                            }
+                            return (data.toLowerCase().indexOf(search) !== -1)
+                        });
+                        if (res.indexOf(true) !== -1) {
+                            product.set({"display": true});
+                        } else {
+                            product.set({"display": false});
+                        }
+
+                    }, this);
+                }
+            },
+
+            filter: function (key, values) {
+                if (key && values && values.length) {
+                    this.collection.each(function (product) {
+                        if (values.indexOf(product.get(key)) !== -1) {
+                            product.set({"display": true});
+                        } else {
+                            product.set({"display": false});
+                        }
+                    });
+
+                } else {
+                    this.showAll();
+                }
+            }
+        });
+
+    }(Ol));
+
+    (function(){
+
+        $(".container").append(new Ol.ProductPage({
+            "products": {{products|safe}},
+            "header": {{header|safe}},
+            "not_parseable": {{not_parseable|safe}}
+    }).render().$el);
+
+    }())
+
+</script>
+{% endblock %}

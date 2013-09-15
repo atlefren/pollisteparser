@@ -1,0 +1,9 @@
+Flask==0.10.1
+Jinja2==2.7.1
+MarkupSafe==0.18
+Werkzeug==0.9.4
+itsdangerous==0.23
+pdfminer==20110515
+pyPdf==1.13
+## !! Could not determine repository location
+wsgiref==0.1.2
